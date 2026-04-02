@@ -11,7 +11,7 @@ def validate_url(url: str) -> bool:
         return False
 
 
-def sanitize_filename(filename: str, max_length: int = 80) -> str:
+def sanitize_filename(filename: str, max_length: int = 150) -> str:
     # 换行符 → 空格
     filename = filename.replace('\n', ' ').replace('\r', ' ')
     # Windows 非法字符 + #，逗号 → 下划线

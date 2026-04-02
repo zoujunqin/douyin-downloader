@@ -142,8 +142,13 @@ class UserDownloader(BaseDownloader):
                 self._progress_advance_item("skipped", str(aweme_id or "unknown"))
                 return {"status": "skipped", "aweme_id": aweme_id}
 
-            success = await self._download_aweme_assets(item, author_name, mode=mode)
-            status = "success" if success else "failed"
+            result = await self._download_aweme_assets(item, author_name, mode=mode)
+            if result == "skipped":
+                status = "skipped"
+            elif result:
+                status = "success"
+            else:
+                status = "failed"
             self._progress_advance_item(status, str(aweme_id or "unknown"))
             return {
                 "status": status,

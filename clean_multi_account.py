@@ -1,4 +1,4 @@
-"""清理 multi_account_download 表中指定 video_dir_path 的下载记录。
+r"""清理 multi_account_download 表中指定 video_dir_path 的下载记录。
 
 用法:
     # 交互式：从 multiple_account_config.json 中选择要清理的目录

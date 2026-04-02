@@ -225,10 +225,11 @@ async def download_multiple_account_config(
             dir_config.config['skip_redownload'] = True
             # 不生成 download_manifest.jsonl 文件
             dir_config.config['skip_manifest'] = True
-            # 视频时长过滤（秒），短于此值的视频跳过不下载
+            # 视频时长过滤（秒），只下载时长小于此值的视频
             video_length = int(entry.get('video_length', 0) or 0)
             if video_length > 0:
                 dir_config.config['min_video_length'] = video_length
+                display.print_info(f"  视频时长过滤: 只下载时长 < {video_length}秒 的视频")
 
             # 本次运行新下载的计数（每次运行从 0 开始）
             new_downloaded = 0

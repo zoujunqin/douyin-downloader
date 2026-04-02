@@ -240,29 +240,31 @@ class BaseDownloader(ABC):
             return aweme_list[:limit]
         return aweme_list
 
+    # _download_aweme_assets 返回值：True=成功, False=失败, "skipped"=跳过（时长过滤等）
     async def _download_aweme_assets(
         self,
         aweme_data: Dict[str, Any],
         author_name: str,
         mode: Optional[str] = None,
-    ) -> bool:
+    ) -> bool | str:
         aweme_id = aweme_data.get("aweme_id")
         if not aweme_id:
             logger.error("Missing aweme_id in aweme data")
             return False
 
-        # min_video_length: 视频时长（秒）低于此值则跳过不下载
-        min_video_length = self.config.get("min_video_length", 0)
-        if min_video_length and min_video_length > 0:
+        # max_video_length: 视频时长（秒）超过此值则跳过不下载，只下载短于此值的视频
+        max_video_length = self.config.get("min_video_length", 0)
+        if max_video_length and max_video_length > 0:
             # 抖音 API 返回的 duration 单位为毫秒
             duration_ms = aweme_data.get("video", {}).get("duration", 0) or 0
             duration_sec = duration_ms / 1000
-            if duration_sec < min_video_length:
+            desc = (aweme_data.get("desc", "no_title") or "").strip() or "no_title"
+            if duration_sec >= max_video_length:
                 logger.info(
-                    "Aweme %s duration %.1fs < min_video_length %ds, skipping",
-                    aweme_id, duration_sec, min_video_length,
+                    "跳过视频 [%s] \"%s\" 时长 %.1f秒 >= %d秒上限",
+                    aweme_id, desc, duration_sec, max_video_length,
                 )
-                return False
+                return "skipped"
 
         desc = (aweme_data.get("desc", "no_title") or "").strip() or "no_title"
         publish_ts, publish_date = self._resolve_publish_time(
