@@ -7,3 +7,9 @@ py -m tools.cookie_fetcher --config config.yml
 ```python
 py ./run.py
 ```
+
+### 清除下载缓存
+```python
+py ./clean_multi_account.py --all # 清理所有
+py ./clean_multi_account.py -d C:\Users\11714\Desktop\小红书二创\小猫\单次机器素材 # 清理指定文件夹
+```
