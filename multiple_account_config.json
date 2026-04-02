@@ -15,6 +15,9 @@
         "user_page": "https://www.douyin.com/user/MS4wLjABAAAA9GDbIbyBL5jTp4FIkjAUnO5sezWnZV2u4LgDA4H8GNvyUeWY5q9z4ZCoF0ch0B4x?from_tab_name=main&vid=7623349612363241070"
       }
     ],
-    "xiaohongshu_account": "xxxx"
+    "count_per_day": 1,
+    "days_per_time": 15,
+    "xiaohongshu_account": "18650209502",
+    "xiaohongshu_video_upload_dir_path": "C:\\Users\\11714\\Desktop\\小红书二创\\小猫\\处理后素材"
   }
 ]
