@@ -59,6 +59,7 @@ class UserDownloader(BaseDownloader):
             result.failed += mode_result.failed
             result.skipped += mode_result.skipped
             result.downloaded_aweme_ids.extend(mode_result.downloaded_aweme_ids)
+            result.downloaded_filenames.update(mode_result.downloaded_filenames)
 
         return result
 
@@ -142,18 +143,22 @@ class UserDownloader(BaseDownloader):
                 self._progress_advance_item("skipped", str(aweme_id or "unknown"))
                 return {"status": "skipped", "aweme_id": aweme_id}
 
-            result = await self._download_aweme_assets(item, author_name, mode=mode)
-            if result == "skipped":
+            dl_result = await self._download_aweme_assets(item, author_name, mode=mode)
+            if dl_result == "skipped":
                 status = "skipped"
-            elif result:
+            elif dl_result:
                 status = "success"
             else:
                 status = "failed"
             self._progress_advance_item(status, str(aweme_id or "unknown"))
-            return {
+            entry = {
                 "status": status,
                 "aweme_id": aweme_id,
             }
+            # dl_result 为文件名字符串时记录下来
+            if status == "success" and isinstance(dl_result, str):
+                entry["filename"] = dl_result
+            return entry
 
         if stop_on_skip:
             # 逐条处理，遇到已下载的直接停止当前用户
@@ -180,6 +185,9 @@ class UserDownloader(BaseDownloader):
                 aweme_id = entry.get("aweme_id")
                 if aweme_id:
                     result.downloaded_aweme_ids.append(str(aweme_id))
+                    filename = entry.get("filename")
+                    if filename:
+                        result.downloaded_filenames[str(aweme_id)] = filename
             elif status == "failed":
                 result.failed += 1
             elif status == "skipped":

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import aiosqlite
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -75,18 +76,35 @@ class Database:
         await db.execute('''
             CREATE TABLE IF NOT EXISTS multi_account_download (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                video_dir_path TEXT NOT NULL,
+                video_dir_path TEXT,
                 sec_uid TEXT NOT NULL,
                 aweme_id TEXT NOT NULL,
                 download_time INTEGER,
-                UNIQUE(video_dir_path, aweme_id)
+                UNIQUE(sec_uid, aweme_id)
             )
         ''')
 
         await db.execute('CREATE INDEX IF NOT EXISTS idx_transcript_aweme_id ON transcript_job(aweme_id)')
         await db.execute('CREATE INDEX IF NOT EXISTS idx_transcript_status ON transcript_job(status)')
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_multi_account_dir ON multi_account_download(video_dir_path)')
-        await db.execute('CREATE INDEX IF NOT EXISTS idx_multi_account_dir_sec ON multi_account_download(video_dir_path, sec_uid)')
+        await db.execute('CREATE INDEX IF NOT EXISTS idx_multi_account_sec_uid ON multi_account_download(sec_uid)')
+
+        # 为 multi_account_download 表添加视频元数据字段（兼容旧数据库）
+        for col, col_type in [
+            ('title', 'TEXT'),
+            ('desc', 'TEXT'),
+            ('tags', 'TEXT'),
+            ('duration', 'INTEGER'),
+            ('author_name', 'TEXT'),
+            ('file_name', 'TEXT'),
+            ('hashtags', 'TEXT'),
+            ('title_2', 'TEXT'),
+        ]:
+            try:
+                await db.execute(
+                    f'ALTER TABLE multi_account_download ADD COLUMN {col} {col_type}'
+                )
+            except Exception:
+                pass  # 字段已存在则忽略
 
         await db.commit()
         self._initialized = True
@@ -224,45 +242,76 @@ class Database:
             'updated_at': row[10],
         }
 
-    async def get_multi_account_downloaded_count(self, video_dir_path: str) -> int:
+    async def get_multi_account_downloaded_ids(
+        self, sec_uid: str,
+    ) -> set:
+        """查询某个抖音用户已下载过的 aweme_id 集合。"""
         db = await self._get_conn()
         cursor = await db.execute(
-            'SELECT COUNT(*) FROM multi_account_download WHERE video_dir_path = ?',
-            (video_dir_path,),
+            'SELECT aweme_id FROM multi_account_download WHERE sec_uid = ?',
+            (sec_uid,),
         )
-        result = await cursor.fetchone()
-        return result[0] if result else 0
+        rows = await cursor.fetchall()
+        return {row[0] for row in rows}
 
-    async def get_multi_account_downloaded_ids(
-        self, video_dir_path: str, sec_uid: str = None
+    async def get_multi_account_downloaded_ids_batch(
+        self, sec_uids: list,
     ) -> set:
+        """查询多个抖音用户已下载过的 aweme_id 集合（合并去重）。"""
+        if not sec_uids:
+            return set()
         db = await self._get_conn()
-        if sec_uid:
-            cursor = await db.execute(
-                'SELECT aweme_id FROM multi_account_download WHERE video_dir_path = ? AND sec_uid = ?',
-                (video_dir_path, sec_uid),
-            )
-        else:
-            cursor = await db.execute(
-                'SELECT aweme_id FROM multi_account_download WHERE video_dir_path = ?',
-                (video_dir_path,),
-            )
+        placeholders = ','.join('?' for _ in sec_uids)
+        cursor = await db.execute(
+            f'SELECT aweme_id FROM multi_account_download WHERE sec_uid IN ({placeholders})',
+            sec_uids,
+        )
         rows = await cursor.fetchall()
         return {row[0] for row in rows}
 
     async def add_multi_account_download(
-        self, video_dir_path: str, sec_uid: str, aweme_id: str
+        self, sec_uid: str, aweme_id: str,
+        *, video_dir_path: str = None, title: str = None, desc: str = None,
+        tags: str = None, duration: int = None, author_name: str = None,
+        file_name: str = None, hashtags: str = None, title_2: str = None,
     ):
         db = await self._get_conn()
         await db.execute(
             '''
             INSERT OR IGNORE INTO multi_account_download
-            (video_dir_path, sec_uid, aweme_id, download_time)
-            VALUES (?, ?, ?, ?)
+            (sec_uid, aweme_id, download_time, video_dir_path,
+             title, desc, tags, duration, author_name, file_name,
+             hashtags, title_2)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
-            (video_dir_path, sec_uid, aweme_id, int(datetime.now().timestamp())),
+            (sec_uid, aweme_id, int(datetime.now().timestamp()), video_dir_path,
+             title, desc, tags, duration, author_name, file_name,
+             hashtags, title_2),
         )
         await db.commit()
+
+    async def get_aweme(self, aweme_id: str) -> Optional[Dict[str, Any]]:
+        db = await self._get_conn()
+        cursor = await db.execute(
+            'SELECT aweme_id, aweme_type, title, author_id, author_name, '
+            'create_time, download_time, file_path, metadata '
+            'FROM aweme WHERE aweme_id = ?',
+            (aweme_id,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return {
+            'aweme_id': row[0],
+            'aweme_type': row[1],
+            'title': row[2],
+            'author_id': row[3],
+            'author_name': row[4],
+            'create_time': row[5],
+            'download_time': row[6],
+            'file_path': row[7],
+            'metadata': row[8],
+        }
 
     async def close(self):
         if self._conn is not None:

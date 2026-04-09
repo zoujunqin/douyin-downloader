@@ -1,4 +1,5 @@
 import json
+import random
 import re
 from abc import ABC, abstractmethod
 from datetime import datetime
@@ -36,6 +37,7 @@ class DownloadResult:
         self.failed = 0
         self.skipped = 0
         self.downloaded_aweme_ids: List[str] = []
+        self.downloaded_filenames: Dict[str, str] = {}  # aweme_id -> video filename
 
     def __str__(self):
         return f"Total: {self.total}, Success: {self.success}, Failed: {self.failed}, Skipped: {self.skipped}"
@@ -240,7 +242,8 @@ class BaseDownloader(ABC):
             return aweme_list[:limit]
         return aweme_list
 
-    # _download_aweme_assets 返回值：True=成功, False=失败, "skipped"=跳过（时长过滤等）
+    # _download_aweme_assets 返回值：视频文件名(str)=成功, False=失败, "skipped"=跳过（时长过滤等）
+    # 成功时返回下载的视频文件名（如 "xxx.mp4"），也为 truthy 值兼容原有逻辑
     async def _download_aweme_assets(
         self,
         aweme_data: Dict[str, Any],
@@ -279,7 +282,19 @@ class BaseDownloader(ABC):
             )
         tags = self._extract_tags(aweme_data)
         tags_suffix = "".join(f"[{t}]" for t in tags) if tags else ""
-        file_stem = sanitize_filename(f"{publish_date}_{desc}_{aweme_id}_{tags_suffix}" if tags_suffix else f"{publish_date}_{desc}_{aweme_id}")
+        # 多账号模式命名：从搜索关键词池中随机取1~3个组合 + 10位随机字符
+        if self.config.get("multi_account_naming"):
+            keywords = self.config.get("naming_keywords") or []
+            if keywords:
+                pick_count = random.randint(1, min(3, len(keywords)))
+                chosen = random.sample(keywords, pick_count)
+                keyword_part = '_'.join(chosen)
+            else:
+                keyword_part = Path(self.config.get("path", "")).parent.name or "video"
+            random_suffix = ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=10))
+            file_stem = sanitize_filename(f"{keyword_part}_{random_suffix}")
+        else:
+            file_stem = sanitize_filename(f"{publish_date}_{desc}_{aweme_id}_{tags_suffix}" if tags_suffix else f"{publish_date}_{desc}_{aweme_id}")
 
         # skip_mode_folder: 多账号模式下不创建 post/like 等子目录
         effective_mode = None if self.config.get("skip_mode_folder") else mode
@@ -473,6 +488,9 @@ class BaseDownloader(ABC):
 
         self._mark_local_aweme_downloaded(aweme_id)
         logger.info("Downloaded %s: %s (%s)", media_type, desc, aweme_id)
+        # 返回主文件的文件名（视频为 .mp4，图集为第一张图片），供上层记录到数据库
+        if downloaded_files:
+            return downloaded_files[0].name
         return True
 
     async def _download_with_retry(
