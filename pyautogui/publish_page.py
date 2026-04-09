@@ -8,9 +8,11 @@
   3. 稍微滚动页面，截图比对标题输入框（title_input.png）和描述标签区域（desc_tags.png），保存位置
   4. 点击标题位置，模拟犹豫，键盘输入标题
   5. 移动鼠标到描述和标签区域，模拟犹豫点击，输入描述和标签
-  6. 点击「发布」按钮
-  7. 等待发布完成
-  8. 保存发布记录到数据库
+  6. 设置内容备注
+  7. 设置定时发布（首次+1天，第二次+2天），滚动查找 publish_schedule_button.png，
+     点击开关，匹配 date.png 输入时间，随机滚动后点击 publish_button.png
+  8. 等待发布完成
+  9. 保存发布记录到数据库
 
 公共入口: run(video_path, video_filename, account, config)
 """
@@ -22,7 +24,7 @@ import sys
 import sqlite3
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # 确保 pyautogui 目录在 sys.path 中，以便兄弟模块（human 等）可被正确导入
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -156,17 +158,32 @@ def _query_download_record(video_filename):
 
 # ─────────────── 数据库操作 ───────────────
 
-def _save_publish_record(upload_dir, video_filename, video_path):
+def _save_publish_record(upload_dir, video_filename, video_path, xiaohongshu_account, days_to_add):
     """保存发布记录到数据库，以 upload_dir 关联"""
+    scheduled_date = (datetime.now() + timedelta(days=days_to_add)).strftime("%Y-%m-%d")
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
-        """INSERT INTO publish_records (upload_dir, video_filename, video_path, publish_time)
-           VALUES (?, ?, ?, ?)""",
-        (upload_dir, video_filename, video_path, datetime.now().isoformat()),
+        """INSERT INTO publish_records (upload_dir, video_filename, video_path, publish_time, xiaohongshu_account, scheduled_date)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (upload_dir, video_filename, video_path, datetime.now().isoformat(), xiaohongshu_account, scheduled_date),
     )
     conn.commit()
     conn.close()
-    print(f"  [数据库] 发布记录已保存: {video_filename}")
+    print(f"  [数据库] 发布记录已保存: {video_filename}, 账号: {xiaohongshu_account}, 定时日期: {scheduled_date}")
+
+
+def _is_schedule_record_exists(xiaohongshu_account, scheduled_date):
+    """检查是否存在相同账号和定时日期的发布记录"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.execute(
+        """SELECT id FROM publish_records
+           WHERE xiaohongshu_account = ? AND scheduled_date = ?
+           LIMIT 1""",
+        (xiaohongshu_account, scheduled_date),
+    )
+    exists = cursor.fetchone() is not None
+    conn.close()
+    return exists
 
 
 # ─────────────── 发布步骤 ───────────────
@@ -317,7 +334,7 @@ def _step_fill_desc_and_tags(desc_tags_box, video_filename, title_2=None, db_tag
     描述内容 = title_2 + 下载记录中的 tags。
     标签从下载记录中获取，每输入一个 #tag 后：
       - 等待随机 1-5s
-      - 模拟真人按键盘向下键随机 1-10 次，或随机按住向下键 0.2-0.7s
+      - 模拟真人按键盘向下键随机 1-8 次
       - 模拟真人按键盘向上键随机 1-4 次
     """
     print("  准备填写描述和标签...")
@@ -365,21 +382,12 @@ def _step_fill_desc_and_tags(desc_tags_box, video_filename, title_2=None, db_tag
         print(f"  标签 #{tag} 输入完毕，等待 {wait_sec:.1f}s...")
         time.sleep(wait_sec)
 
-        # 模拟真人按键盘向下键：随机选择「多次按下」或「按住」
-        if random.random() < 0.5:
-            # 方式1: 随机按下向下键 1-10 次
-            down_count = random.randint(1, 10)
-            print(f"  按下向下键 {down_count} 次...")
-            for _ in range(down_count):
-                hi.press("down")
-                time.sleep(random.uniform(0.08, 0.25))
-        else:
-            # 方式2: 按住向下键 0.2-0.7s
-            hold_time = random.uniform(0.2, 0.7)
-            print(f"  按住向下键 {hold_time:.2f}s...")
-            pyautogui.keyDown("down")
-            time.sleep(hold_time)
-            pyautogui.keyUp("down")
+        # 模拟真人按键盘向下键随机 1-8 次
+        down_count = random.randint(1, 8)
+        print(f"  按下向下键 {down_count} 次...")
+        for _ in range(down_count):
+            hi.press("down")
+            time.sleep(random.uniform(0.08, 0.25))
 
         hi.pause(0.2, 0.5)
 
@@ -458,6 +466,125 @@ def _step_set_content_remark():
     return False
 
 
+def _step_set_schedule(days_to_add):
+    """
+    步骤7: 设置定时发布。
+    1. 等待 1-3s
+    2. 向下滚动直到匹配 publish_schedule_button.png
+    3. 点击开关位置
+    4. 截图匹配 date.png，点击左边一点点
+    5. 根据 days_to_add 计算日期：今天 + days_to_add 天
+    6. 键盘输入 YYYY-MM-DD hh:mm 格式时间
+    7. 模拟真人随机上下滚动
+    8. 截图匹配 publish_button.png，模拟真人点击发布
+    """
+    print("  设置定时发布...")
+    screen_w, screen_h = pyautogui.size()
+
+    print(f"  days_to_add: {days_to_add}")
+
+    # 等待 1-3s
+    wait_time = random.uniform(1.0, 3.0)
+    print(f"  等待 {wait_time:.1f}s...")
+    time.sleep(wait_time)
+
+    # 向下滚动直到匹配 publish_schedule_button.png
+    print("  向下滚动查找定时发布按钮...")
+    max_scroll_attempts = 10
+    for scroll_attempt in range(max_scroll_attempts):
+        _take_screenshot(f"schedule_scroll_{scroll_attempt + 1}")
+
+        schedule_box = _locate_ref_image("publish_schedule_button.png", confidence=0.7)
+        if schedule_box:
+            print("  匹配到 publish_schedule_button，点击开关位置...")
+            # 点击开关位置（按钮中心偏左）
+            cx = schedule_box.left + int(schedule_box.width * 0.3)
+            cy = schedule_box.top + schedule_box.height // 2
+            hi.click(cx, cy)
+            hi.pause(0.8, 1.5)
+            break
+
+        # 未匹配到，向下滚动
+        cx = random.randint(int(screen_w * 0.3), int(screen_w * 0.7))
+        cy = random.randint(int(screen_h * 0.5), int(screen_h * 0.7))
+        hi.move_to(cx, cy, duration_range=(0.3, 0.6))
+        hi.pause(0.3, 0.5)
+        hi.scroll(-random.randint(200, 400))
+        hi.pause(1.0, 2.0)
+    else:
+        print("  [警告] 未找到定时发布按钮，跳过定时设置")
+        _take_screenshot("schedule_button_not_found")
+        return False
+
+    # 截图匹配 date.png，点击左边一点点
+    print("  查找日期选择器...")
+    _take_screenshot("date_selector_check")
+    date_box = _locate_ref_image("date.png", confidence=0.7)
+    if date_box:
+        print("  匹配到 date.png，点击左边...")
+        # 点击 date.png 左边一点的位置
+        cx = date_box.left - random.randint(1, 60)
+        cy = date_box.top + date_box.height // 2
+        hi.click(cx, cy)
+        hi.pause(0.5, 1.0)
+
+        # 全选清除原有日期
+        print("  全选清除原有日期...")
+        pyautogui.hotkey("ctrl", "a")
+        hi.pause(0.3, 0.6)
+    else:
+        print("  [警告] 未匹配到 date.png")
+
+    # 计算目标日期
+    target_date = datetime.now() + timedelta(days=days_to_add)
+    date_str = target_date.strftime("%Y-%m-%d")
+
+    # 生成随机时间（上午 9:00 - 下午 10:00 之间）
+    hour = random.randint(9, 22)
+    minute = random.randint(0, 59)
+    time_str = f"{hour:02d}:{minute:02d}"
+
+    full_datetime = f"{date_str} {time_str}"
+    print(f"  输入定时时间: {full_datetime}")
+
+    # 键盘输入时间
+    hi.type_text(full_datetime)
+    hi.pause(0.5, 1.0)
+
+    # 截图匹配 title_more.png 位置，点击
+    title_more_box = _locate_ref_image("title_more.png", confidence=0.8)
+    if title_more_box:
+        print("  匹配到 title_more.png，点击...")
+        hi.click(title_more_box.left + title_more_box.width // 2,
+                 title_more_box.top + title_more_box.height // 2)
+        hi.pause(0.5, 1.0)
+
+    # 模拟真人向上滚动直到匹配 title_set_face.png
+    print("  向上滚动查找 title_set_face...")
+    for scroll_attempt in range(10):
+        face_box = _locate_ref_image("title_set_face.png", confidence=0.6)
+        if face_box:
+            print("  匹配到 title_set_face")
+            break
+        hi.scroll(300)
+        hi.pause(0.5, 1.0)
+
+    # 模拟真人向下滚动直到匹配 publish_schedule_button.png
+    print("  向下滚动查找 publish_schedule_button...")
+    for scroll_attempt in range(10):
+        _take_screenshot(f"schedule_final_scroll_{scroll_attempt + 1}")
+        schedule_box = _locate_ref_image("publish_schedule_button.png", confidence=0.7)
+        if schedule_box:
+            print("  匹配到 publish_schedule_button")
+            break
+        hi.scroll(-300)
+        hi.pause(0.5, 1.0)
+
+    _take_screenshot("after_schedule_set")
+
+    return True
+
+
 def _step_click_publish():
     """
     步骤7: 点击「发布」按钮。
@@ -499,7 +626,7 @@ def _step_wait_publish_complete():
 
 # ─────────────── 公共入口 ───────────────
 
-def run(video_path, video_filename, upload_dir, config):
+def run(video_path, video_filename, upload_dir, config, days_to_add=1):
     """
     公共入口：浏览页面 → 等待上传完成 → 定位输入区域 → 填写标题 → 填写描述标签 → 发布 → 保存记录。
 
@@ -508,6 +635,7 @@ def run(video_path, video_filename, upload_dir, config):
         video_filename: 视频文件名
         upload_dir: 视频上传目录路径（用于关联发布记录）
         config: 配置字典
+        days_to_add: 定时发布时，距离今天的天数（默认1）
     """
     print("=" * 50)
     print("小红书发布页 - 填写信息并发布")
@@ -536,13 +664,17 @@ def run(video_path, video_filename, upload_dir, config):
     print("\n步骤6: 设置内容备注...")
     _step_set_content_remark()
 
-    print("\n步骤7: 点击发布...")
+    print("\n步骤7: 设置定时发布...")
+    _step_set_schedule(days_to_add)
+
+    print("\n步骤8: 点击发布...")
     _step_click_publish()
 
-    print("\n步骤8: 等待发布完成...")
+    print("\n步骤9: 等待发布完成...")
     _step_wait_publish_complete()
 
-    print("\n步骤9: 保存发布记录...")
-    _save_publish_record(upload_dir, video_filename, video_path)
+    print("\n步骤10: 保存发布记录...")
+    xiaohongshu_account = config.get("xiaohongshu_account", "未知账号")
+    _save_publish_record(upload_dir, video_filename, video_path, xiaohongshu_account, days_to_add)
 
     print("\n发布流程执行完毕!")

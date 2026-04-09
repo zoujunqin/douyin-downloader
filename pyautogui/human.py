@@ -281,9 +281,9 @@ class HumanInput:
             # 加速度曲线：开头和结尾步长小，中间步长大，每步随机变化
             progress = scrolled / total if total > 0 else 0.5
             if progress < 0.2 or progress > 0.8:
-                step = min(remaining, random.randint(15, 60))
+                step = min(remaining, random.randint(90, 360))
             else:
-                step = min(remaining, random.randint(30, 120))
+                step = min(remaining, random.randint(180, 720))
 
             pyautogui.scroll(step * direction)
             remaining -= step

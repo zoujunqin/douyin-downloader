@@ -334,9 +334,6 @@ def _step_random_browse():
     _ensure_foreground()
     screen_w, screen_h = pyautogui.size()
 
-    print("  真人随机浏览首页...")
-    hi.browse_page(screen_w, screen_h)
-
     # 随机穿插一些真人噪声动作
     noise_count = random.randint(1, 3)
     for i in range(noise_count):
@@ -534,9 +531,20 @@ def _init_db():
             upload_dir TEXT,
             video_filename TEXT,
             video_path TEXT,
-            publish_time TEXT
+            publish_time TEXT,
+            xiaohongshu_account TEXT,
+            scheduled_date TEXT
         )
     """)
+    # 为已有数据库添加新字段（如果不存在）
+    try:
+        conn.execute("ALTER TABLE publish_records ADD COLUMN xiaohongshu_account TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE publish_records ADD COLUMN scheduled_date TEXT")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()
 
@@ -601,16 +609,13 @@ def _step_select_video_file(video_path):
     print(f"  在文件对话框中选择: {video_path}")
     _take_screenshot("file_dialog_opened")
 
-    # 等待文件对话框出现
-    hi.pause(1.0, 2.0)
-
     # 在文件对话框的文件名输入框中输入路径
     # 文件对话框的文件名栏通常已获得焦点，直接输入路径
     hi.paste_text(video_path)
     _take_screenshot("file_dialog_path_entered")
 
     # 等待文件系统响应（路径解析、缩略图加载等需要时间）
-    wait_sec = random.uniform(8.0, 15.0)
+    wait_sec = random.uniform(6.0, 12.0)
     print(f"  等待文件系统响应 {wait_sec:.1f} 秒...")
     time.sleep(wait_sec)
 

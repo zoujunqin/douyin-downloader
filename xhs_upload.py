@@ -3,6 +3,8 @@ import asyncio
 import json
 import subprocess
 import sys
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # 确保 pyautogui 目录在 sys.path 中，以便正确导入其中的模块
@@ -79,26 +81,50 @@ async def main():
         #     else:
         #         print(f"[{idx}/{len(accounts)}] WiFi已连接: {wifi}")
 
-        import home_page
-        result = home_page.run(config=entry)
+        # 按 days_per_time 循环定时发布
+        days_per_time = entry.get("days_per_time", 1)
+        for schedule_idx in range(days_per_time):
+            days_to_add = schedule_idx + 1  # 第1次+1天，第2次+2天，第3次+3天
+            scheduled_date = (datetime.now() + timedelta(days=days_to_add)).strftime("%Y-%m-%d")
+            account = entry.get('xiaohongshu_account', '未知账号')
+            print(f"\n  [{idx}/{len(accounts)}] 第 {schedule_idx + 1}/{days_per_time} 次定时发布，days_to_add={days_to_add}, 定时日期={scheduled_date}")
 
-        if result is None:
-            print(f"[{idx}/{len(accounts)}] 无可上传视频，跳过")
-            continue
-
-        # 如果有视频信息，调用 publish_page 完成发布
-        video_path = result.get("video_path")
-        video_filename = result.get("video_filename")
-        if video_path and video_filename:
+            # 检查是否已存在相同账号和定时日期的发布记录
             import publish_page
-            publish_page.run(
-                video_path=video_path,
-                video_filename=video_filename,
-                upload_dir=result.get("upload_dir", ""),
-                config=entry,
-            )
-        else:
-            print(f"[{idx}/{len(accounts)}] 未选择视频，跳过发布步骤")
+            if publish_page._is_schedule_record_exists(account, scheduled_date):
+                print(f"  [{idx}/{len(accounts)}] 账号 {account} 在 {scheduled_date} 已存在发布记录，跳过本次发布")
+                continue
+
+            loop_start_time = time.time()
+
+            import home_page
+            home_page_start = time.time()
+            result = home_page.run(config=entry)
+            home_page_duration = time.time() - home_page_start
+            print(f"  [计时] home_page 耗时: {home_page_duration:.1f}s")
+
+            if result is None:
+                print(f"  [{idx}/{len(accounts)}] 无可上传视频，跳过本次发布")
+                continue
+
+            video_path = result.get("video_path")
+            video_filename = result.get("video_filename")
+            if video_path and video_filename:
+                import publish_page
+                publish_start = time.time()
+                publish_page.run(
+                    video_path=video_path,
+                    video_filename=video_filename,
+                    upload_dir=result.get("upload_dir", ""),
+                    config=entry,
+                    days_to_add=days_to_add,
+                )
+                publish_duration = time.time() - publish_start
+                total_duration = time.time() - loop_start_time
+                print(f"  [计时] publish_page 耗时: {publish_duration:.1f}s")
+                print(f"  [计时] 本次发布总耗时: {total_duration:.1f}s")
+            else:
+                print(f"  [{idx}/{len(accounts)}] 未选择视频，跳过发布步骤")
 
 
 if __name__ == '__main__':
