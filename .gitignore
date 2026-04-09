@@ -33,6 +33,7 @@ logs/
 # Runtime output
 Downloaded/
 Transcripts/
+**/tmp/
 dy_downloader.db
 *.db
 *.sqlite
@@ -44,3 +45,4 @@ config*.yml
 .cookies.json
 config/cookies.json
 .omx/
+
